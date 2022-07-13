@@ -62,31 +62,36 @@ async fn login(
 }
 
 async fn is_healthy(database: Extension<MongoDb>) -> bool {
-    let end = match database.find_last_milestone(u32::MAX.into()).await {
-        Ok(Some(last)) => last,
-        _ => return false,
-    };
-
-    // Panic: The milestone_timestamp is guaranteeed to be valid.
-    let latest_ms_time = OffsetDateTime::from_unix_timestamp(end.milestone_timestamp.0 as i64).unwrap();
-
-    if OffsetDateTime::now_utc() > latest_ms_time + STALE_MILESTONE_DURATION {
-        return false;
-    }
-
-    let start = match database.find_first_milestone(0.into()).await {
-        Ok(Some(first)) => first,
-        _ => return false,
-    };
-
-    // Check if there are no gaps in the sync status.
-    match database
-        .get_sync_data(start.milestone_index..=end.milestone_index)
-        .await
+    #[cfg(feature = "stardust")]
     {
-        Ok(sync) => sync.gaps.is_empty(),
-        _ => false,
+        let end = match database.find_last_milestone(u32::MAX.into()).await {
+            Ok(Some(last)) => last,
+            _ => return false,
+        };
+
+        // Panic: The milestone_timestamp is guaranteeed to be valid.
+        let latest_ms_time = OffsetDateTime::from_unix_timestamp(end.milestone_timestamp.0 as i64).unwrap();
+
+        if OffsetDateTime::now_utc() > latest_ms_time + STALE_MILESTONE_DURATION {
+            return false;
+        }
+
+        let start = match database.find_first_milestone(0.into()).await {
+            Ok(Some(first)) => first,
+            _ => return false,
+        };
+
+        // Check if there are no gaps in the sync status.
+        match database
+            .get_sync_data(start.milestone_index..=end.milestone_index)
+            .await
+        {
+            Ok(sync) => sync.gaps.is_empty(),
+            _ => false,
+        }
     }
+    #[cfg(not(feature = "stardust"))]
+    true
 }
 
 pub async fn info(database: Extension<MongoDb>) -> InfoResponse {
@@ -105,7 +110,7 @@ pub async fn health(database: Extension<MongoDb>) -> StatusCode {
     }
 }
 
-#[cfg(feature = "api-history")]
+#[cfg(all(feature = "stardust", feature = "api-history"))]
 pub async fn sync(database: Extension<MongoDb>) -> ApiResult<SyncDataDto> {
     Ok(SyncDataDto(database.get_sync_data(0.into()..=u32::MAX.into()).await?))
 }
