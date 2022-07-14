@@ -85,14 +85,14 @@ async fn is_healthy(database: Extension<MongoDb>) -> bool {
         };
 
         // Check if there are no gaps in the sync status.
-        result = match database
+        result &= match database
             .get_sync_data(start.milestone_index..=end.milestone_index)
             .await
         {
             Ok(sync) => sync.gaps.is_empty(),
             _ => false,
         };
-    };
+    }
 
     result
 }
