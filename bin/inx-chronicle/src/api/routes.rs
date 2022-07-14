@@ -62,6 +62,9 @@ async fn login(
 }
 
 async fn is_healthy(database: Extension<MongoDb>) -> bool {
+    #[allow(unused_mut)]
+    let mut result = true;
+
     #[cfg(feature = "stardust")]
     {
         let end = match database.find_last_milestone(u32::MAX.into()).await {
@@ -82,16 +85,16 @@ async fn is_healthy(database: Extension<MongoDb>) -> bool {
         };
 
         // Check if there are no gaps in the sync status.
-        match database
+        result = match database
             .get_sync_data(start.milestone_index..=end.milestone_index)
             .await
         {
             Ok(sync) => sync.gaps.is_empty(),
             _ => false,
-        }
-    }
-    #[cfg(not(feature = "stardust"))]
-    true
+        };
+    };
+
+    result
 }
 
 pub async fn info(database: Extension<MongoDb>) -> InfoResponse {
