@@ -11,6 +11,7 @@ use mongodb::{
     IndexModel,
 };
 use serde::{Deserialize, Serialize};
+use time::{Duration, OffsetDateTime};
 
 use crate::{
     db::MongoDb,
@@ -23,6 +24,10 @@ use crate::{
         tangle::MilestoneIndex,
     },
 };
+
+// Similar to Hornet, we enforce that the latest known milestone is newer than 5 minutes. This should give Chronicle
+// sufficient time to catch up with the node that it is connected too. The current milestone interval is 5 seconds.
+const STALE_MILESTONE_DURATION: Duration = Duration::minutes(5);
 
 /// A milestone's metadata.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -429,5 +434,40 @@ impl MongoDb {
 
                 (receipt, at)
             }))
+    }
+
+    /// Checks if the current state of the database is healthy.
+    pub async fn is_healthy(&self) -> Result<bool, Error> {
+        #[cfg(feature = "stardust")]
+        {
+            let end = match self.find_last_milestone(u32::MAX.into()).await? {
+                Some(last) => last,
+                _ => return Ok(false),
+            };
+
+            // Panic: The milestone_timestamp is guaranteeed to be valid.
+            let latest_ms_time = OffsetDateTime::from_unix_timestamp(end.milestone_timestamp.0 as i64).unwrap();
+
+            if OffsetDateTime::now_utc() > latest_ms_time + STALE_MILESTONE_DURATION {
+                return Ok(false);
+            }
+
+            let start = match self.find_first_milestone(0.into()).await {
+                Ok(Some(first)) => first,
+                _ => return Ok(false),
+            };
+
+            // Check if there are no gaps in the sync status.
+            if self
+                .get_sync_data(start.milestone_index..=end.milestone_index)
+                .await?
+                .gaps
+                .is_empty()
+            {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 }
