@@ -377,7 +377,7 @@ async fn handle_cone_stream(db: &MongoDb, inx: &mut Inx, milestone_index: Milest
     // rather than collecting, rust is unable to resolve the bounds and cannot adequately express
     // what is actually wrong.
     #[allow(clippy::needless_collect)]
-    let payloads = blocks_with_metadata
+    let treasury_payloads = blocks_with_metadata
         .iter()
         .filter_map(|(_, block, _, metadata): &(BlockId, Block, Vec<u8>, BlockMetadata)| {
             if metadata.inclusion_state == LedgerInclusionState::Included {
@@ -393,7 +393,7 @@ async fn handle_cone_stream(db: &MongoDb, inx: &mut Inx, milestone_index: Milest
         })
         .collect::<Vec<_>>();
 
-    for batch in &payloads.into_iter().chunks(INSERT_BATCH_SIZE) {
+    for batch in &treasury_payloads.into_iter().chunks(INSERT_BATCH_SIZE) {
         db.collection::<TreasuryCollection>()
             .insert_treasury_payloads(batch)
             .await?;
