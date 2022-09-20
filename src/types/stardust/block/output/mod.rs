@@ -254,7 +254,7 @@ mod rand {
     impl Output {
         /// Generates a random [`Output`].
         pub fn rand() -> Self {
-            match rand_number_range(0..5) {
+            match rand_number_range(0..=3) {
                 0 => Self::rand_basic(),
                 1 => Self::rand_alias(),
                 2 => Self::rand_foundry(),

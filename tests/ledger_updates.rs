@@ -16,7 +16,7 @@ mod test_rand {
             MongoDb,
         },
         types::{
-            ledger::{LedgerOutput, MilestoneIndexTimestamp},
+            ledger::{LedgerOutput, LedgerSpent, MilestoneIndexTimestamp, SpentMetadata},
             stardust::block::{
                 output::{AddressUnlockCondition, BasicOutput, OutputId},
                 BlockId, Output,
@@ -27,12 +27,6 @@ mod test_rand {
 
     use super::common::connect_to_test_db;
 
-    // insert_spent_ledger_updates
-    // insert_unspent_ledger_updates
-    // stream_ledger_updates_by_address
-    // stream_ledger_updates_by_milestone
-
-    // FIXME: there seems to be a bug with adding ledger updates as the number of inserted documents is sometimes wrong.
     #[tokio::test]
     async fn test_ledger_updates_by_address() {
         let (db, collection) = setup("test-ledger-updates-by-address").await;
@@ -42,7 +36,7 @@ mod test_rand {
         let address = address_unlock_condition.clone().address;
 
         let ledger_outputs = std::iter::repeat_with(|| (BlockId::rand(), rand_number_range(1..1000), OutputId::rand()))
-            .take(2)
+            .take(50)
             .inspect(|(_, _, output_id)| {
                 outputs.insert(output_id.clone());
             })
@@ -56,7 +50,6 @@ mod test_rand {
                     expiration_unlock_condition: None,
                     features: Vec::new().into_boxed_slice(),
                 };
-
                 LedgerOutput {
                     block_id,
                     booked: MilestoneIndexTimestamp {
@@ -69,7 +62,7 @@ mod test_rand {
             })
             .chain(
                 std::iter::repeat_with(|| (BlockId::rand(), Output::rand(), OutputId::rand()))
-                    .take(0)
+                    .take(50)
                     .map(|(block_id, output, output_id)| LedgerOutput {
                         block_id,
                         booked: MilestoneIndexTimestamp {
@@ -82,14 +75,14 @@ mod test_rand {
             )
             .collect::<Vec<_>>();
 
-        assert_eq!(ledger_outputs.len(), 2);
+        assert_eq!(ledger_outputs.len(), 100);
 
         collection
             .insert_unspent_ledger_updates(ledger_outputs.iter())
             .await
             .unwrap();
 
-        assert_eq!(collection.len().await.unwrap(), 2);
+        assert_eq!(collection.len().await.unwrap(), 100);
 
         let mut s = collection
             .stream_ledger_updates_by_address(&address, 100, None, SortOrder::Newest)
@@ -122,7 +115,7 @@ mod test_rand {
         let (db, collection) = setup("test-ledger-updates-by-milestone").await;
 
         let mut outputs = HashMap::new();
-        let ledger_outputs = std::iter::repeat_with(|| (BlockId::rand(), Output::rand_basic(), OutputId::rand()))
+        let ledger_outputs = std::iter::repeat_with(|| (BlockId::rand(), Output::rand(), OutputId::rand()))
             .take(100)
             .enumerate()
             .inspect(|(i, (_, _, output_id))| {
@@ -161,6 +154,64 @@ mod test_rand {
             assert!(!is_spent);
         }
         assert_eq!(outputs.len(), 95);
+
+        teardown(db).await;
+    }
+
+    #[tokio::test]
+    async fn test_spent_unspent_ledger_updates() {
+        let (db, collection) = setup("test-spent-unspent-ledger-updates").await;
+
+        let mut booked_outputs = Vec::new();
+
+        let spent_outputs = std::iter::repeat_with(|| (BlockId::rand(), Output::rand(), OutputId::rand()))
+            .take(100)
+            .map(|(block_id, output, output_id)| LedgerOutput {
+                block_id,
+                booked: MilestoneIndexTimestamp {
+                    milestone_index: 0.into(),
+                    milestone_timestamp: 10000.into(),
+                },
+                output,
+                output_id,
+            })
+            .inspect(|booked_output| {
+                assert!(!booked_outputs.contains(booked_output));
+                booked_outputs.push(booked_output.clone());
+            })
+            .enumerate()
+            .filter_map(|(i, booked_output)| {
+                if i % 2 == 0 {
+                    Some(LedgerSpent {
+                        output: booked_output,
+                        spent_metadata: SpentMetadata {
+                            transaction_id: OutputId::rand().transaction_id,
+                            spent: MilestoneIndexTimestamp {
+                                milestone_index: 1.into(),
+                                milestone_timestamp: 20000.into(),
+                            },
+                        },
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(booked_outputs.len(), 100);
+        assert_eq!(spent_outputs.len(), 50);
+
+        collection
+            .insert_unspent_ledger_updates(booked_outputs.iter())
+            .await
+            .unwrap();
+
+        collection
+            .insert_spent_ledger_updates(spent_outputs.iter())
+            .await
+            .unwrap();
+
+        assert_eq!(collection.len().await.unwrap(), 150);
 
         teardown(db).await;
     }
