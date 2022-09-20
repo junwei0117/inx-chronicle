@@ -196,6 +196,31 @@ mod rand {
                 },
             }
         }
+
+        /// Generates a random [`TransactionEssence`].
+        pub fn rand_spending() -> (Self, Input) {
+            let inputs = std::iter::repeat_with(Input::rand_utxo)
+                .take(rand_number_range(1..10))
+                .collect::<Vec<Input>>();
+            let input = inputs[0];
+
+            (
+                Self::Regular {
+                    network_id: rand_number(),
+                    inputs: inputs.into_boxed_slice(),
+                    inputs_commitment: *rand_inputs_commitment(),
+                    outputs: std::iter::repeat_with(Output::rand)
+                        .take(rand_number_range(0..10))
+                        .collect(),
+                    payload: if rand_number_range(0..=1) == 1 {
+                        Some(Payload::rand_tagged_data())
+                    } else {
+                        None
+                    },
+                },
+                input,
+            )
+        }
     }
 
     impl TransactionPayload {
@@ -208,6 +233,21 @@ mod rand {
                     .take(rand_number_range(1..10))
                     .collect(),
             }
+        }
+
+        /// Generates a random spending [`TransactionPayload`].
+        pub fn rand_spending() -> (Self, Input) {
+            let (essence, input) = TransactionEssence::rand_spending();
+            (
+                Self {
+                    transaction_id: TransactionId::rand(),
+                    essence,
+                    unlocks: std::iter::repeat_with(Unlock::rand)
+                        .take(rand_number_range(1..10))
+                        .collect(),
+                },
+                input,
+            )
         }
     }
 }

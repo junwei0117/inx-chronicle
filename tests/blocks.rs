@@ -14,7 +14,7 @@ mod test_rand {
         },
         types::{
             ledger::{BlockMetadata, ConflictReason, LedgerInclusionState, LedgerOutput, MilestoneIndexTimestamp},
-            stardust::block::{output::OutputId, payload::TransactionEssence, Block, BlockId, Payload},
+            stardust::block::{output::OutputId, payload::TransactionEssence, Block, BlockId, Input, Output, Payload},
         },
     };
     use futures::TryStreamExt;
@@ -174,6 +174,42 @@ mod test_rand {
             assert!(children.remove(&child_id))
         }
         assert!(children.is_empty());
+
+        teardown(db).await;
+    }
+
+    #[tokio::test]
+    async fn test_spending_transaction() {
+        let (db, collection) = setup("test-spending-transaction").await;
+
+        let block_id = BlockId::rand();
+        let (block, input) = Block::rand_spending_transaction();
+        let output_id = if let Input::Utxo(output_id) = input {
+            output_id
+        } else {
+            unreachable!();
+        };
+        let parents = block.parents.clone();
+        let raw = bee_block_stardust::rand::bytes::rand_bytes(10);
+        let metadata = BlockMetadata {
+            parents,
+            is_solid: true,
+            should_promote: false,
+            should_reattach: false,
+            referenced_by_milestone_index: 1.into(),
+            milestone_index: 0.into(),
+            inclusion_state: LedgerInclusionState::Included,
+            conflict_reason: ConflictReason::None,
+            white_flag_index: 0u32,
+        };
+
+        let blocks = vec![(block_id, block.clone(), raw, metadata)];
+        collection.insert_blocks_with_metadata(blocks).await.unwrap();
+
+        assert_eq!(collection.get_spending_transaction(&output_id).await.unwrap().map(|b| b.protocol_version), Some(block.protocol_version));
+        assert_eq!(collection.get_spending_transaction(&output_id).await.unwrap().map(|b| b.parents), Some(block.parents));
+        // assert_eq!(collection.get_spending_transaction(&output_id).await.unwrap().map(|b| b.payload), Some(block.payload));
+        assert_eq!(collection.get_spending_transaction(&output_id).await.unwrap().map(|b| b.nonce), Some(block.nonce));
 
         teardown(db).await;
     }
